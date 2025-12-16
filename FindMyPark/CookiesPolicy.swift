@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct CookiesPolicyView: View {
+struct CookiesPolicy: View {
     var body: some View {
         SettingsDetailView(title: "Cookies Policy", systemIcon: "doc", iconColor: .brown) {
             NavigationLink("View Cookies Policy") {

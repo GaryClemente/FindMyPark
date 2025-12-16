@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct ShareAppView: View {
+struct ShareApp: View {
     var body: some View {
         SettingsDetailView(title: "Share App", systemIcon: "square.and.arrow.up", iconColor: .blue) {
             Button(action: shareApp) {
