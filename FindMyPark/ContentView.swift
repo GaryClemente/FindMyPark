@@ -1,21 +1,37 @@
-//
-//  ContentView.swift
-//  FindMyPark
-//
-//  Created by Gary Clemente on 11/4/25.
-//
-
 import SwiftUI
 
 struct ContentView: View {
+    @State private var searchTerm = ""
+    @AppStorage("isDarkMode") private var darkModeEnabled = false   // ✅ FIXED — must be here
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+
+        TabView {
+
+            NavigationStack {
+                WelcomeView()
+            }
+            .tabItem {
+                Label("Account", systemImage: "house")
+            }
+
+            NavigationStack {
+                MapScreen()
+            }
+            .tabItem {
+                Label("Map", systemImage: "map")
+            }
+
+            NavigationStack {
+                SettingView()
+            }
+            .tabItem {
+                Label("Settings", systemImage: "gearshape")
+            }
+            
+            
         }
-        .padding()
+        .preferredColorScheme(darkModeEnabled ? .dark : .light)   // ✅ FIXED — applies theme globally
     }
 }
 

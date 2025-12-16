@@ -8,7 +8,7 @@
 import SwiftUI
 import MessageUI
 
-struct ContactView: View {
+struct Contact: View {
     @State private var showMailer = false
     
     var body: some View {

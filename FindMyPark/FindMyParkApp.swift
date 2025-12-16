@@ -9,9 +9,14 @@ import SwiftUI
 
 @main
 struct FindMyParkApp: App {
+    @AppStorage("isDarkMode") private var darkModeEnabled = false
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(darkModeEnabled ? .dark : .light)
+
+
         }
     }
 }
