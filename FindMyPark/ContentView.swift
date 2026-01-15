@@ -21,6 +21,13 @@ struct ContentView: View {
             .tabItem {
                 Label("Map", systemImage: "map")
             }
+            NavigationStack {
+                    FavoritesView()
+                }
+                .tabItem {
+                    Label("Favorites", systemImage: "heart.fill")
+                }
+            
 
             NavigationStack {
                 SettingView()
