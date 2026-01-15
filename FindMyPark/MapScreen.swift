@@ -3,182 +3,250 @@ import MapKit
 
 struct MapScreen: View {
 
-    @State private var searchResults: [MKMapItem] = []
-    @State private var nearestPark: MKMapItem?
-
     @StateObject private var locationManager = LocationManager()
 
-    @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090),
-        span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
-    )
-
+    @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var searchText = ""
-    @State private var mapType: MKMapType = .standard
-    @State private var showingDirections = false
 
-    let locations: [Place] = sampleLocations
+    @State private var searchResults: [MKMapItem] = []
+    @State private var selectedItem: IdentifiableMapItem?
 
-    // MARK: - FORMAT DISTANCE
-    func formatDistance(to item: MKMapItem) -> String {
-        guard let user = locationManager.userLocation else { return "" }
+    @State private var walkingRoute: MKRoute?
+    @State private var drivingRoute: MKRoute?
 
-        let userLocation = CLLocation(latitude: user.coordinate.latitude,
-                                      longitude: user.coordinate.longitude)
+    @State private var walkingInfo = "--"
+    @State private var drivingInfo = "--"
 
-        let parkLocation = CLLocation(latitude: item.placemark.coordinate.latitude,
-                                      longitude: item.placemark.coordinate.longitude)
+    @State private var favorites: [FavoritePark] = []
 
-        let meters = userLocation.distance(from: parkLocation)
-        let miles = meters / 1609.34
+    @State private var droppedPin: CLLocationCoordinate2D?
 
-        return String(format: "%.2f miles away", miles)
-    }
+    @State private var showPlaygrounds = true
+    @State private var showDogParks = true
 
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .top) {
+        ZStack {
 
-                // MARK: - MAIN MAP
-                Map(
-                    coordinateRegion: $region,
-                    interactionModes: .all,
-                    showsUserLocation: true,
-                    annotationItems: nearestPark == nil
-                        ? locations
-                        : [Place(
-                            name: nearestPark?.name ?? "Nearest Park",
-                            coordinate: nearestPark!.placemark.coordinate
-                        )]
-                ) { place in
-                    MapAnnotation(coordinate: place.coordinate) {
-                        VStack(spacing: 4) {
+            // MARK: MAP
+            Map(position: $cameraPosition) {
+
+                UserAnnotation()
+
+                // 📌 Dropped Pin
+                if let droppedPin {
+                    Annotation("Dropped Pin", coordinate: droppedPin) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .foregroundStyle(.purple)
+                            .font(.title)
+                    }
+                }
+
+                // 📍 Search Results
+                ForEach(filteredResults(), id: \.self) { item in
+                    Annotation(item.name ?? "Park",
+                               coordinate: item.placemark.coordinate) {
+                        Button {
+                            selectedItem = IdentifiableMapItem(item: item)
+                            calculateRoutes(to: item)
+                        } label: {
                             Image(systemName: "mappin.circle.fill")
+                                .foregroundStyle(.red)
                                 .font(.title)
-                                .foregroundColor(.red)
-
-                            Text(place.name)
-                                .font(.caption)
-                                .padding(4)
-                                .background(.thinMaterial)
-                                .cornerRadius(6)
                         }
                     }
                 }
-                .mapStyle(mapType == .standard ? .standard : .hybrid)
-                .ignoresSafeArea()
 
-                // MARK: - SEARCH BAR
-                VStack {
-                    TextField("Search for parks…", text: $searchText)
-                        .padding(12)
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(12)
-                        .shadow(radius: 4)
-                        .padding(.horizontal)
-                        .padding(.top, 60)
-                        .onChange(of: searchText) { newValue in
-                            searchForParks(query: newValue)
-                        }
+                // 🧭 Routes
+                if let walkingRoute {
+                    MapPolyline(walkingRoute.polyline)
+                        .stroke(.blue, lineWidth: 4)
+                }
 
-                    // DISTANCE LABEL (only when a park is selected)
-                    if let park = nearestPark {
-                        Text("\(park.name ?? "Park") • \(formatDistance(to: park))")
-                            .font(.headline)
+                if let drivingRoute {
+                    MapPolyline(drivingRoute.polyline)
+                        .stroke(.green, lineWidth: 4)
+                }
+            }
+            .ignoresSafeArea()
+            .onLongPressGesture {
+                droppedPin = locationManager.userLocation?.coordinate
+            }
+
+            // 🧭 Recenter Button
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button {
+                        recenter()
+                    } label: {
+                        Image(systemName: "location.fill")
                             .padding()
                             .background(.ultraThinMaterial)
-                            .cornerRadius(12)
-                            .padding(.top, 10)
+                            .clipShape(Circle())
                     }
+                    .padding()
+                }
+            }
 
-                    Spacer()
+            // 🔍 Search + Filters
+            VStack(spacing: 8) {
+
+                TextField("Search parks", text: $searchText)
+                    .padding(12)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                    .padding(.top, 60)
+                    .onSubmit { searchParks() }
+
+                HStack {
+                    Toggle("Playgrounds", isOn: $showPlaygrounds)
+                    Toggle("Dog Parks", isOn: $showDogParks)
+                }
+                .padding(8)
+                .background(.ultraThinMaterial)
+                .cornerRadius(12)
+                .padding(.horizontal)
+
+                // 🧠 Smart Recommendations
+                if let user = locationManager.userLocation {
+                    VStack(alignment: .leading) {
+                        Text("Recommended")
+                            .font(.headline)
+                        ForEach(recommended(from: user), id: \.self) {
+                            Text($0.name ?? "")
+                                .font(.subheadline)
+                        }
+                    }
+                    .padding()
+                    .background(.thinMaterial)
+                    .cornerRadius(12)
+                    .padding(.horizontal)
                 }
 
-                // MARK: - FLOATING BUTTONS (RIGHT SIDE)
-                floatingButtons
-                    .padding(.trailing)
-                    .padding(.bottom, 40)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            }
-            .navigationBarHidden(true)
-        }
-    }
-
-    // MARK: - FLOATING BUTTONS UI
-    var floatingButtons: some View {
-        VStack(spacing: 12) {
-
-            // RECENTER
-            Button {
-                if let loc = locationManager.userLocation {
-                    region.center = loc.coordinate
-                }
-            } label: {
-                circleButton("location.fill")
-            }
-
-            // ZOOM IN
-            Button {
-                region.span.latitudeDelta /= 1.5
-                region.span.longitudeDelta /= 1.5
-            } label: {
-                circleButton("plus")
-            }
-
-            // ZOOM OUT
-            Button {
-                region.span.latitudeDelta *= 1.5
-                region.span.longitudeDelta *= 1.5
-            } label: {
-                circleButton("minus")
-            }
-
-            // MAP STYLE
-            Button {
-                mapType = mapType == .standard ? .hybrid : .standard
-            } label: {
-                circleButton("square.3.layers.3d")
+                Spacer()
             }
         }
+        .sheet(item: $selectedItem) { wrapper in
+            infoSheet(for: wrapper.item)
+        }
+        .onAppear { loadFavorites() }
     }
 
-    // MARK: - SEARCH FUNCTION
-    func searchForParks(query: String) {
-        guard !query.isEmpty else { return }
-
+    // MARK: SEARCH
+    func searchParks() {
         let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = "park \(query)"
-        request.region = region
+        request.naturalLanguageQuery = searchText
 
-        let search = MKLocalSearch(request: request)
-        search.start { response, _ in
-            guard let response = response else { return }
+        if let user = locationManager.userLocation {
+            request.region = MKCoordinateRegion(
+                center: user.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.2, longitudeDelta: 0.2)
+            )
+        }
 
-            searchResults = response.mapItems
-
-            if let closest = response.mapItems.first {
-                nearestPark = closest
-
-                // Auto zoom
-                region.center = closest.placemark.coordinate
-                region.span = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        MKLocalSearch(request: request).start { response, _ in
+            DispatchQueue.main.async {
+                searchResults = response?.mapItems ?? []
             }
         }
     }
-}
 
+    // MARK: FILTERS
+    func filteredResults() -> [MKMapItem] {
+        searchResults.filter {
+            let name = ($0.name ?? "").lowercased()
+            if name.contains("dog") && !showDogParks { return false }
+            if name.contains("playground") && !showPlaygrounds { return false }
+            return true
+        }
+    }
 
-// MARK: - BUTTON STYLE HELPER
-func circleButton(_ systemName: String) -> some View {
-    Image(systemName: systemName)
-        .font(.title2)
+    // MARK: ROUTES + ETA
+    func calculateRoutes(to item: MKMapItem) {
+        guard let user = locationManager.userLocation else { return }
+        let source = MKMapItem(placemark: MKPlacemark(coordinate: user.coordinate))
+
+        let req = MKDirections.Request()
+        req.source = source
+        req.destination = item
+
+        req.transportType = .walking
+        MKDirections(request: req).calculate { r, _ in
+            walkingRoute = r?.routes.first
+            if let route = r?.routes.first {
+                walkingInfo = "\(Int(route.expectedTravelTime/60)) min • \(String(format: "%.2f", route.distance/1609.34)) mi"
+            }
+        }
+
+        req.transportType = .automobile
+        MKDirections(request: req).calculate { r, _ in
+            drivingRoute = r?.routes.first
+            if let route = r?.routes.first {
+                drivingInfo = "\(Int(route.expectedTravelTime/60)) min • \(String(format: "%.2f", route.distance/1609.34)) mi"
+            }
+        }
+    }
+
+    // MARK: FAVORITES
+    func saveFavorite(_ item: MKMapItem) {
+        let fav = FavoritePark(
+            name: item.name ?? "Park",
+            latitude: item.placemark.coordinate.latitude,
+            longitude: item.placemark.coordinate.longitude
+        )
+        favorites.append(fav)
+        UserDefaults.standard.set(try? JSONEncoder().encode(favorites),
+                                  forKey: "favorites")
+    }
+
+    func loadFavorites() {
+        if let data = UserDefaults.standard.data(forKey: "favorites"),
+           let decoded = try? JSONDecoder().decode([FavoritePark].self, from: data) {
+            favorites = decoded
+        }
+    }
+
+    // MARK: HELPERS
+    func recenter() {
+        guard let user = locationManager.userLocation else { return }
+        cameraPosition = .region(
+            MKCoordinateRegion(
+                center: user.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+            )
+        )
+    }
+
+    func recommended(from user: CLLocation) -> [MKMapItem] {
+        searchResults
+            .sorted {
+                user.distance(from: CLLocation(latitude: $0.placemark.coordinate.latitude,
+                                               longitude: $0.placemark.coordinate.longitude))
+                <
+                user.distance(from: CLLocation(latitude: $1.placemark.coordinate.latitude,
+                                               longitude: $1.placemark.coordinate.longitude))
+            }
+            .prefix(3)
+            .map { $0 }
+    }
+
+    func infoSheet(for item: MKMapItem) -> some View {
+        VStack(spacing: 16) {
+            Text(item.name ?? "Park").font(.title2).bold()
+            HStack {
+                Label(walkingInfo, systemImage: "figure.walk")
+                Label(drivingInfo, systemImage: "car")
+            }
+            Button("Save to Favorites") {
+                saveFavorite(item)
+            }
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
         .padding()
-        .background(.thinMaterial)
-        .clipShape(Circle())
-}
-
-
-#Preview {
-    MapScreen()
+        .presentationDetents([.medium])
+    }
 }
 
